@@ -56,6 +56,9 @@ def main():
     scheduler = AdaptiveKScheduler(executed_steps=args.execute_steps, candidates=tuple(args.candidates), initial_k=args.initial_k)
     client = websocket_client_policy.WebsocketClientPolicy('127.0.0.1', args.port)
     meta = client.get_server_metadata()
+    if meta.get('context_conditioning') != 'jax_action_context_v1' or meta.get('strict_checkpoint') is not True:
+        client._ws.close()
+        raise ValueError('Start the updated serve_time.py: strict Future context conditioning is required')
     if meta.get('action_target_alignment') != 'after_context' or meta.get('context_horizon') != 9:
         raise ValueError(f'Wrong model metadata: {meta}')
     (out/'run.json').write_text(json.dumps(dict(args=vars(args), metadata=meta,

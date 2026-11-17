@@ -29,13 +29,9 @@ class SeededPolicy:
         self.policy.reset()
 
 
-def main():
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--checkpoint', default=os.environ.get('TIME_CHECKPOINT', 'checkpoints/pi05_libero_async_future'))
-    parser.add_argument('--port', type=int, default=19930)
-    parser.add_argument('--seed', type=int, default=7)
-    args = parser.parse_args()
-    checkpoint = Path(args.checkpoint).resolve()
+def load_future_policy(checkpoint, *, seed=7):
+    """Verify files and require the complete training-time JAX parameter tree."""
+    checkpoint = Path(checkpoint).resolve()
     manifest = json.loads((checkpoint/'checkpoint_manifest.json').read_text())
     if manifest.get('repo_id') != 'Dream-LIN/pi05_libero_async_future' or manifest.get('format') != 'Orbax JAX':
         raise ValueError('Require the original Future JAX checkpoint')
@@ -53,12 +49,27 @@ def main():
     # the same inference inputs/parameter shapes; use the FUTURE weights above.
     cfg = config.get_config('pi05_libero_async_context_from_libero')
     cfg = dataclasses.replace(cfg, name='pi05_libero_async_future_time')
-    policy = policy_config.create_trained_policy(cfg, checkpoint, sample_kwargs={'num_steps': 10})
-    policy._rng = jax.random.key(args.seed)
+    policy = policy_config.create_trained_policy(
+        cfg, checkpoint, sample_kwargs={'num_steps': 10}, strict_checkpoint=True,
+    )
+    if getattr(policy._model, 'action_context_horizon', None) != 9 or not hasattr(policy._model, 'action_context_in_proj'):
+        raise ValueError('Future inference requires the trained JAX action-context projection')
+    policy._rng = jax.random.key(seed)
     metadata = dict(config=cfg.name, action_target_alignment='after_context',
                     predicted_steps=10, context_horizon=9, output_skip_steps=0,
                     checkpoint=str(checkpoint), checkpoint_step=manifest['checkpoint_step'],
-                    backend='jax', num_denoise_steps=10, timing_scheduler='client')
+                    backend='jax', num_denoise_steps=10, timing_scheduler='client',
+                    context_conditioning='jax_action_context_v1', strict_checkpoint=True)
+    return policy, metadata
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--checkpoint', default=os.environ.get('TIME_CHECKPOINT', 'checkpoints/pi05_libero_async_future'))
+    parser.add_argument('--port', type=int, default=19930)
+    parser.add_argument('--seed', type=int, default=7)
+    args = parser.parse_args()
+    policy, metadata = load_future_policy(args.checkpoint, seed=args.seed)
     logging.info('TIME_SERVER_METADATA %s', json.dumps(metadata))
     WebsocketPolicyServer(SeededPolicy(policy), host='127.0.0.1', port=args.port,
                           metadata=metadata).serve_forever()

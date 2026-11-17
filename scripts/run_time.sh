@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 repo_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
-mode=${1:?Usage: run_time.sh server|eval|test GPU [arguments]}
+mode=${1:?Usage: run_time.sh server|eval|test|check-context GPU [arguments]}
 gpu=${2:?Specify GPU index}
 shift 2
 if [[ -n "${TIME_PYTHON:-}" ]]; then
@@ -21,6 +21,7 @@ export XLA_PYTHON_CLIENT_PREALLOCATE=false
 cd "$repo_dir"
 case "$mode" in
     server) export JAX_PLATFORMS=cuda; script=scripts/serve_time.py ;;
+    check-context) export JAX_PLATFORMS=${TIME_JAX_PLATFORMS:-cuda}; script=scripts/check_time_context.py ;;
     eval)
         export JAX_PLATFORMS=cpu MUJOCO_GL=egl PYOPENGL_PLATFORM=egl
         export MUJOCO_EGL_DEVICE_ID="$gpu"

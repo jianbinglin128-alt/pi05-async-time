@@ -4,6 +4,8 @@ ActSync Future 动作上下文模型的轻量自适应推理触发调度器。�
 
 本仓库包含代码、配置、测试及说明。模型权重、虚拟环境、缓存、数据集、实验视频和逐回合日志均不包含在仓库中。上游 OpenPI 说明保存在 [README.upstream.md](README.upstream.md)。
 
+**版本修复提示：初始提交 `8c92507` 的 JAX 模型缺少动作上下文投影与注意力输入。本版恢复训练时的上下文计算路径，并强制完整参数匹配。旧版 LIBERO 结果不能用于评价修复版 Future 调度效果。更新后必须重启服务端和客户端；新客户端会拒绝旧服务端。** 详见 [修复说明](docs/context_fix.md)。
+
 ## 调度规则
 
 - 默认 H=10、E=10，候选 k=2..9，初始 k=4。
@@ -54,6 +56,16 @@ PY
 # CPU 测试，不需要模型权重或 LIBERO 数据。
 bash scripts/run_time.sh test 0
 
+# 完整权重上下文检查，需要 checkpoint；不会运行 LIBERO。
+bash scripts/run_time.sh check-context 0 \
+  --checkpoint "$PWD/checkpoints/pi05_libero_async_future" \
+  --output "$PWD/results/context_check.json"
+
+# 真实权重上下文检查，需要 GPU；使用固定合成观测，不评估任务成功率。
+bash scripts/run_time.sh check-context 0 \
+  --checkpoint "$PWD/checkpoints/pi05_libero_async_future" \
+  --output "$PWD/results/context_check.json"
+
 # 终端 1：服务端，10 次 flow 步，完整未剪枝权重。
 bash scripts/run_time.sh server 0 --port 19930 \
   --checkpoint "$PWD/checkpoints/pi05_libero_async_future"
@@ -73,9 +85,9 @@ bash scripts/run_time.sh eval 0 --port 19930 \
 
 ## 验证范围
 
-14 项 CPU 测试覆盖时间预算、滞回、不可行处理、真实后台线程、动作顺序及最大上下文 k=9。原运行版本还在已有环境中完成了 28 回合 LIBERO 功能检查：窄范围自动组和固定 k=4 组各 8/12 成功，逐回合成功状态与步数一致；宽范围组 2/4 成功，实际使用 k=4..9，同四个初态的固定组也是 2/4。没有程序异常。
+22 项 CPU 测试覆盖时间预算、滞回、不可行处理、真实后台线程、动作顺序，以及实际 JAX 动作专家的上下文依赖、mask、注意力方向和严格权重加载。CPU 网络测试缩小视觉编码器，使用真实的小型 Transformer；完整已训练权重另外通过 `check-context` 检查。
 
-该小规模检查使用共享 GPU，只验证链路可运行，不能作为完整 LIBERO 成功率或独占设备提速结论。发布包另外验证了 CPU 测试与入口可导入；尚未在全新机器上重建整个环境并复跑 GPU 评估。
+初始版的 28 回合检查以及 DGX Spatial 对照都发生在上下文链路修复前，不能作为本版 Future 模型成功率证据。修复版验证范围见 [修复说明](docs/context_fix.md)。尚未在全新机器上重建整个环境；小规模检查不能作为完整 LIBERO 成功率或独占设备提速结论。
 
 ## 关键代码
 

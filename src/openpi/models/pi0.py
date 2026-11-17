@@ -67,6 +67,7 @@ class Pi0(_model.BaseModel):
     def __init__(self, config: pi0_config.Pi0Config, rngs: nnx.Rngs):
         super().__init__(config.action_dim, config.action_horizon, config.max_token_len)
         self.pi05 = config.pi05
+        self.action_context_horizon = config.action_context_horizon
         paligemma_config = _gemma.get_config(config.paligemma_variant)
         action_expert_config = _gemma.get_config(config.action_expert_variant)
         # TODO: rewrite gemma in NNX. For now, use bridge.
@@ -90,6 +91,8 @@ class Pi0(_model.BaseModel):
         img.lazy_init(next(iter(config.fake_obs().images.values())), train=False, rngs=rngs)
         self.PaliGemma = nnx.Dict(llm=llm, img=img)
         self.action_in_proj = nnx.Linear(config.action_dim, action_expert_config.width, rngs=rngs)
+        if self.action_context_horizon:
+            self.action_context_in_proj = nnx.Linear(config.action_dim, action_expert_config.width, rngs=rngs)
         if config.pi05:
             self.time_mlp_in = nnx.Linear(action_expert_config.width, action_expert_config.width, rngs=rngs)
             self.time_mlp_out = nnx.Linear(action_expert_config.width, action_expert_config.width, rngs=rngs)
@@ -155,6 +158,18 @@ class Pi0(_model.BaseModel):
             input_mask.append(jnp.ones((obs.state.shape[0], 1), dtype=jnp.bool_))
             # image/language inputs do not attend to state or actions
             ar_mask += [True]
+
+        if self.action_context_horizon:
+            if obs.action_context is None or obs.action_context_mask is None:
+                raise ValueError("action_context and its mask must be packed before inference")
+            expected = (obs.state.shape[0], self.action_context_horizon, self.action_dim)
+            if obs.action_context.shape != expected or obs.action_context_mask.shape != expected[:2]:
+                raise ValueError(f"Expected packed context {expected} and mask {expected[:2]}")
+            context_tokens = self.action_context_in_proj(obs.action_context)
+            tokens.append(context_tokens)
+            input_mask.append(obs.action_context_mask)
+            # Clean context is a bidirectional block preceding generated actions.
+            ar_mask += [True] + [False] * (self.action_context_horizon - 1)
 
         action_tokens = self.action_in_proj(noisy_actions)
         # embed timestep using sine-cosine positional encoding with sensitivity in the range [0, 1]
