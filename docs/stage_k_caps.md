@@ -4,15 +4,15 @@
 
 本版固定执行长度 E=10，与模型每次生成的 H=10 个动作一致。命令行、调度器、阶段配置与 broker 均拒绝其他执行长度，客户端校验服务端声明的预测长度，broker 校验每次实际返回的 10×7 动作。除任务提前结束，整块 10 步全部执行，不截取前 5 步或 8 步。
 
-阶段请求上限为：精细阶段 `floor(E/2)=5`，粗操作 `floor(2E/3)=6`。实际生效上限还受单块剩余动作数与权重上下文长度约束：
+默认阶段请求上限为：精细阶段 3，粗操作 7。实际生效上限还受单块剩余动作数与权重上下文长度约束：
 
 ```text
 hard_max_k = min(E-1, 9)
-fine_max_k = min(floor(E/2), hard_max_k)
-coarse_max_k = min(floor(2E/3), hard_max_k)
+fine_max_k = min(3, hard_max_k)
+coarse_max_k = min(7, hard_max_k)
 ```
 
-E=10 时，精细和粗操作的请求上限与实际上限均为 5/6，候选集合自动为 0..6。上限只限制允许的最大 k，调度器仍根据实际耗时选择范围内最小可行值。
+E=10 时，精细和粗操作的默认请求上限与实际上限均为 3/7，候选集合自动为 0..7。上限只限制允许的最大 k，调度器仍根据实际耗时选择范围内最小可行值。
 
 可显式配置上限 0。`k=0` 表示先执行完本块，再获取新观测，以空动作上下文同步请求下一块。它会产生交接等待，不改变本块执行长度 E，也不意味着每个动作后都重新观察。
 
@@ -43,11 +43,11 @@ E=10 时，精细和粗操作的请求上限与实际上限均为 5/6，候选�
 更新并重启修复版 Future 服务端，然后：
 
 ```bash
-# 同一 Spatial 10 个任务，每任务 3 个初态；E=10，实际 fine cap=5、coarse cap=6。
+# 同一 Spatial 10 个任务，每任务 3 个初态；E=10，实际 fine cap=3、coarse cap=7。
 bash scripts/run_time.sh eval 0 --port 19930 \
   --suites libero_spatial --tasks 10 --trials 3 \
   --stage-aware \
-  --output "$PWD/results/spatial_stage_cap56"
+  --output "$PWD/results/spatial_stage_cap37"
 
 # 另一个方案：精细阶段允许最多提前 2 步，粗操作仍最多 4 步。
 bash scripts/run_time.sh eval 0 --port 19930 \

@@ -42,10 +42,10 @@ def scheduler(**overrides):
 
 
 class StageTests(unittest.TestCase):
-    def test_ratio_defaults_and_execution_context_limits(self):
+    def test_stage_defaults_and_execution_context_limits(self):
         cfg = config(fine_max_k=None, coarse_max_k=None)
-        self.assertEqual((cfg.requested_fine_max_k, cfg.requested_coarse_max_k), (5, 6))
-        self.assertEqual((cfg.fine_max_k, cfg.coarse_max_k, cfg.hard_max_k), (5, 6, 9))
+        self.assertEqual((cfg.requested_fine_max_k, cfg.requested_coarse_max_k), (3, 7))
+        self.assertEqual((cfg.fine_max_k, cfg.coarse_max_k, cfg.hard_max_k), (3, 7, 9))
         for e in (2, 5, 7, 9, 11):
             with self.subTest(e=e):
                 with self.assertRaisesRegex(ValueError, 'E=H=10'):
@@ -56,12 +56,12 @@ class StageTests(unittest.TestCase):
     def test_requested_and_effective_caps_are_logged(self):
         stage = StageKCap(config(fine_max_k=None, coarse_max_k=None))
         decision = stage.choose_for_chunk(open_actions())
-        self.assertEqual((decision['requested_max_k'], decision['max_k'], decision['hard_max_k']), (5, 5, 9))
+        self.assertEqual((decision['requested_max_k'], decision['max_k'], decision['hard_max_k']), (3, 3, 9))
         for i in range(11):
             t = i*.05
             stage.observe([.1*t, 0., 0.], t, -1.)
         decision = stage.choose_for_chunk(open_actions())
-        self.assertEqual((decision['requested_max_k'], decision['max_k'], decision['hard_max_k']), (6, 6, 9))
+        self.assertEqual((decision['requested_max_k'], decision['max_k'], decision['hard_max_k']), (7, 7, 9))
 
     def test_history_missing_is_fine_and_steady_translation_is_coarse(self):
         self.assertEqual(StageKCap(config()).choose_for_chunk(open_actions())['max_k'], 0)

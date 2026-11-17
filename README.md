@@ -17,7 +17,7 @@ ActSync Future 动作上下文模型的轻量自适应推理触发调度器。�
 
 若没有候选值满足预算，使用最大 k 并记录不可行。经验分位数规则不构成实时保证或任务质量保证。该机制参考 [ActECC IV-B](https://arxiv.org/html/2603.07949v3#S4.SS2) 的最晚可行请求原则，适配固定动作上下文交接。
 
-可通过 `--stage-aware` 启用来自 `openpi_async_stage` 的 coarse/fine 状态上限：精细阶段请求上限 `floor(E/2)=5`，粗操作请求上限 `floor(2E/3)=6`，实际均受 `min(E-1, 9)=9` 的执行与权重限制，实际上限为 5/6。状态由已执行的末端运动历史和本块预测夹爪事件判断，计时调度器在上限内选 k；上限内预算不足时接受等待。默认仍使用原计时模式。配置来源、迁移差异与命令见 [阶段上限说明](docs/stage_k_caps.md)。
+可通过 `--stage-aware` 启用来自 `openpi_async_stage` 的 coarse/fine 状态上限：精细阶段默认上限为 3，粗操作默认上限为 7，实际均受 `min(E-1, 9)=9` 的执行与权重限制，默认实际上限为 3/7。状态由已执行的末端运动历史和本块预测夹爪事件判断，计时调度器在上限内选 k；上限内预算不足时接受等待。默认仍使用原计时模式。配置来源、迁移差异与命令见 [阶段上限说明](docs/stage_k_caps.md)。
 
 ## 环境
 
@@ -83,7 +83,7 @@ bash scripts/run_time.sh eval 0 --port 19930 \
 # 根据 coarse/fine 阶段限制 k；E 仍为 10。
 bash scripts/run_time.sh eval 0 --port 19930 \
   --suites libero_spatial --tasks 10 --trials 3 --stage-aware \
-  --output "$PWD/results/spatial_stage_cap56"
+  --output "$PWD/results/spatial_stage_cap37"
 ```
 
 使用 `--suites libero_spatial` 选择套件，`--candidates 2 3 4` 限制候选范围。`--tasks 10 --trials 50` 对每个选定套件评估 500 回合。输出目录必须是新目录，GPU 与端口需避开其他作业。服务端默认只监听本机。

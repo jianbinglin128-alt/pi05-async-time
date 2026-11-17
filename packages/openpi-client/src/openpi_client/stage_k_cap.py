@@ -42,8 +42,8 @@ class StageConfig:
             raise ValueError('Future timing runtime requires E=H=10 action steps')
         if type(self.context_horizon) is not int or not 0 <= self.context_horizon <= 9:
             raise ValueError('context_horizon must be an integer in 0..9 for the current checkpoint')
-        fine = self.executed_steps//2 if self.fine_max_k is None else self.fine_max_k
-        coarse = 2*self.executed_steps//3 if self.coarse_max_k is None else self.coarse_max_k
+        fine = 3 if self.fine_max_k is None else self.fine_max_k
+        coarse = 7 if self.coarse_max_k is None else self.coarse_max_k
         if any(type(k) is not int for k in (fine, coarse)) or not 0 <= fine <= coarse:
             raise ValueError('Require integer requested caps 0 <= fine_max_k <= coarse_max_k')
         hard = min(self.executed_steps-1, self.context_horizon)
