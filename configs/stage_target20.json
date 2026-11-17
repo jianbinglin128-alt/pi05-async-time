@@ -1,0 +1,22 @@
+{
+  "speed_enter_fine_m_s": 0.012239111374649756,
+  "speed_exit_fine_m_s": 0.013463022512114732,
+  "change_enter_fine_m_s2": 0.7021818933864977,
+  "change_exit_fine_m_s2": 0.631963704047848,
+  "gripper_hold_s": 0.15,
+  "stable_chunks": 1,
+  "history_window_steps": 5,
+  "gripper_command_deadband": 0.2,
+  "latency_margin_ms": 0,
+  "latency_window": 128,
+  "action_time_quantile": 0.1,
+  "action_time_window": 128,
+  "executable_horizon": 5,
+  "coarse_overlap": "min(ceil(rolling_max_latency / rolling_q10_env_step), H-1)",
+  "fine_overlap": 0,
+  "calibration_initial_state": 0,
+  "validation_initial_state": 2,
+  "threshold_fit": "Calibration-only phase-state replay; shared motion-tail quantile; 10% relative hysteresis",
+  "caveat": "20% target is empirical occupancy, not a semantic label or an online quota. Gripper hold shortened because original mandatory conditions exceed target.",
+  "target_fine_fraction": 0.2
+}

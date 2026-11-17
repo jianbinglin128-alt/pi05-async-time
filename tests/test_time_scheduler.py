@@ -60,7 +60,7 @@ class SchedulerTests(unittest.TestCase):
         self.assertFalse(s.choose_for_next_chunk().feasible)
 
     def test_training_and_execution_bounds(self):
-        for options in [dict(candidates=(0, 2)), dict(candidates=(10,)),
+        for options in [dict(candidates=(-1, 2)), dict(candidates=(10,)),
                         dict(executed_steps=4), dict(context_horizon=3)]:
             with self.assertRaises(ValueError):
                 AdaptiveKScheduler(**options)

@@ -9,7 +9,7 @@ import numpy as np
 class AdaptiveFutureBroker:
     """One request in flight; results never replace their committed context."""
 
-    def __init__(self, client, scheduler, *, fixed_k=None, predicted_steps=10):
+    def __init__(self, client, scheduler, *, fixed_k=None, predicted_steps=10, stage_controller=None):
         self.client = client
         self.scheduler = scheduler
         self.e = scheduler.executed_steps
@@ -18,6 +18,9 @@ class AdaptiveFutureBroker:
         if fixed_k is not None and fixed_k not in scheduler.candidates:
             raise ValueError('Fixed k must be a scheduler candidate')
         self.fixed_k = fixed_k
+        if fixed_k is not None and stage_controller is not None:
+            raise ValueError('Fixed-k comparison must not use stage caps')
+        self.stage_controller = stage_controller
         self.predicted_steps = predicted_steps
         self.executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix='time-inference')
         self.current = None
@@ -49,8 +52,12 @@ class AdaptiveFutureBroker:
         self.index = 0
         self.chunk += 1
         started = time.perf_counter_ns()
-        self.decision = asdict(self.scheduler.choose_for_next_chunk())
+        stage = self.stage_controller.choose_for_chunk(actions) if self.stage_controller is not None else None
+        choice = self.scheduler.choose_for_next_chunk(max_k=stage['max_k']) if stage is not None else self.scheduler.choose_for_next_chunk()
+        self.decision = asdict(choice)
         self.decision['scheduler_ns'] = time.perf_counter_ns()-started
+        if stage is not None:
+            self.decision['stage'] = stage
         if self.fixed_k is not None:
             self.decision.update(k=self.fixed_k, trigger_after=self.e-self.fixed_k)
             if self.decision['action_s'] is not None:
@@ -75,7 +82,13 @@ class AdaptiveFutureBroker:
             self._install(actions)
         elif self.index == self.e:
             if self.pending is None:
-                raise RuntimeError('No future request at chunk boundary')
+                if self.decision['k'] != 0:
+                    raise RuntimeError('No future request at chunk boundary')
+                # k=0 takes a fresh observation only after the old chunk finishes.
+                started = time.perf_counter_ns()
+                request = observation_factory()
+                request['action_context'] = np.zeros((0, 7), dtype=np.float32)
+                self.pending = self.executor.submit(self._request, request, started, 0, self.total_actions)
             boundary_ns = self.last_action_end_ns or time.perf_counter_ns()
             actions, record = self.pending.result()
             self.pending = None
@@ -83,10 +96,13 @@ class AdaptiveFutureBroker:
             self.scheduler.observe_request(record['request_s'])
             self.handovers.append(dict(
                 chunk=self.chunk, at_step=self.total_actions, k=record['context_steps'],
+                stage=self.decision.get('stage', {}).get('phase'),
+                max_k=self.decision.get('max_k'),
                 boundary_ns=boundary_ns, ready_ns=record['ready_ns'],
                 covered=record['ready_ns'] <= boundary_ns,
                 wait_s=max(0., (record['ready_ns']-boundary_ns)/1e9),
-                cover_window_s=(boundary_ns-record['start_ns'])/1e9))
+                cover_window_s=max(0., (boundary_ns-record['start_ns'])/1e9),
+                request_after_boundary_s=max(0., (record['start_ns']-boundary_ns)/1e9)))
             self._install(actions)
         if self.index == self.decision['trigger_after']:
             if self.pending is not None:

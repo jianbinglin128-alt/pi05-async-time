@@ -37,6 +37,9 @@ class Decision:
     budget_s: float | None
     estimated_wait_s: float | None
     margin_deficit_s: float | None
+    max_k: int | None = None
+    cap_limited: bool = False
+    timing_min_k: int | None = None
 
 
 class AdaptiveKScheduler:
@@ -57,9 +60,9 @@ class AdaptiveKScheduler:
             raise ValueError("executed_steps must be an integer >= 2")
         candidates = tuple(sorted(set(candidates)))
         if not candidates or any(not isinstance(k, int) or
-                                 not 1 <= k <= min(context_horizon, executed_steps-1)
+                                 not 0 <= k <= min(context_horizon, executed_steps-1)
                                  for k in candidates):
-            raise ValueError("Candidates must satisfy 1 <= k <= min(context_horizon, E-1)")
+            raise ValueError("Candidates must satisfy 0 <= k <= min(context_horizon, E-1)")
         if initial_k not in candidates:
             raise ValueError("initial_k must be a candidate")
         if any(not isinstance(n, int) or n < 1 for n in
@@ -93,27 +96,42 @@ class AdaptiveKScheduler:
         # env.step or command slot duration, never chunk-boundary waiting.
         self.actions.append(_positive(duration_s))
 
-    def choose_for_next_chunk(self):
+    def choose_for_next_chunk(self, *, max_k=None):
+        if max_k is not None and (not isinstance(max_k, int) or isinstance(max_k, bool) or max_k < 0):
+            raise ValueError("max_k must be a nonnegative integer")
+        allowed = tuple(k for k in self.candidates if max_k is None or k <= max_k)
+        if not allowed:
+            raise ValueError("No scheduler candidate satisfies max_k")
+        previous_k = self.k
+        self.k = min(self.k, allowed[-1])
+        clamped = self.k != previous_k
+        if clamped:
+            self._lower_streak = 0
         if len(self.latencies) < self.min_requests or len(self.actions) < self.min_actions:
             self._lower_streak = 0
             return Decision(self.k, self.executed_steps-self.k, True,
-                            None, None, None, None, None, None)
+                            None, None, None, None, None, None,
+                            max_k=max_k, cap_limited=clamped)
         latency = _quantile(self.latencies, self.latency_quantile)
         action = _quantile(self.actions, self.action_quantile)
         budget = latency + max(self.margin_s, self.margin_fraction*latency)
-        feasible = [k for k in self.candidates if k*action >= budget]
-        wanted = feasible[0] if feasible else self.candidates[-1]
+        feasible = [k for k in allowed if k*action >= budget]
+        globally_feasible = [k for k in self.candidates if k*action >= budget]
+        timing_min_k = globally_feasible[0] if globally_feasible else None
+        wanted = feasible[0] if feasible else allowed[-1]
         if wanted > self.k:
             self.k = wanted
             self._lower_streak = 0
         elif wanted < self.k:
             self._lower_streak += 1
             if self._lower_streak >= self.decrease_chunks:
-                self.k = self.candidates[self.candidates.index(self.k)-1]
+                self.k = allowed[allowed.index(self.k)-1]
                 self._lower_streak = 0
         else:
             self._lower_streak = 0
         return Decision(
             self.k, self.executed_steps-self.k, False, bool(feasible),
             latency, action, budget, max(0., latency-self.k*action),
-            max(0., budget-self.k*action))
+            max(0., budget-self.k*action), max_k=max_k,
+            cap_limited=clamped or (max_k is not None and not feasible and allowed[-1] < self.candidates[-1]),
+            timing_min_k=timing_min_k)
