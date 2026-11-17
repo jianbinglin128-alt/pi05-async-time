@@ -12,6 +12,12 @@ def ready_scheduler(**overrides):
 
 
 class SchedulerTests(unittest.TestCase):
+    def test_execution_length_cannot_be_changed(self):
+        for length in (2, 5, 8, 9, 11, True, 10.0):
+            with self.subTest(length=length):
+                with self.assertRaisesRegex(ValueError, 'E=H=10'):
+                    AdaptiveKScheduler(executed_steps=length)
+
     def test_cold_start_is_explicit(self):
         d = AdaptiveKScheduler().choose_for_next_chunk()
         self.assertEqual((d.k, d.trigger_after, d.cold_start), (4, 6, True))

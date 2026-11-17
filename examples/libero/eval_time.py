@@ -14,6 +14,7 @@ from openpi_client import image_tools, websocket_client_policy
 from openpi_client.adaptive_k_scheduler import AdaptiveKScheduler
 from openpi_client.adaptive_future_broker import AdaptiveFutureBroker
 from openpi_client.stage_k_cap import StageConfig, StageKCap
+from openpi_client.time_protocol import EXECUTED_STEPS, PREDICTED_STEPS
 
 MAX_STEPS = dict(libero_spatial=220, libero_object=280, libero_goal=300, libero_10=520)
 
@@ -43,19 +44,20 @@ def main():
     parser.add_argument('--suites', nargs='+', choices=list(MAX_STEPS), default=list(MAX_STEPS))
     parser.add_argument('--tasks', type=int, default=1)
     parser.add_argument('--trials', type=int, default=3)
-    parser.add_argument('--execute-steps', type=int, default=10)
+    parser.add_argument('--execute-steps', type=int, choices=[EXECUTED_STEPS], default=EXECUTED_STEPS,
+                        help='Fixed protocol: execute all 10 predicted action steps per chunk')
     parser.add_argument('--candidates', nargs='+', type=int)
     parser.add_argument('--initial-k', type=int)
     parser.add_argument('--fixed-k', type=int)
     parser.add_argument('--stage-aware', action='store_true', help='Use coarse/fine state to cap k per chunk')
     parser.add_argument('--stage-config', default=str(Path(__file__).resolve().parents[2]/'configs/stage_target20.json'))
     parser.add_argument('--stage-fine-max-k', type=int, help='Requested fine cap; default floor(E/2), clipped by E-1 and context horizon')
-    parser.add_argument('--stage-coarse-max-k', type=int, help='Requested coarse cap; default 2E, clipped by E-1 and context horizon')
+    parser.add_argument('--stage-coarse-max-k', type=int, help='Requested coarse cap; default floor(2E/3)=6, clipped by E-1 and context horizon')
     parser.add_argument('--seed', type=int, default=7)
     parser.add_argument('--output', required=True)
     args = parser.parse_args()
-    if not 1 <= args.tasks <= 10 or not 1 <= args.trials <= 50 or not 2 <= args.execute_steps <= 10:
-        parser.error('Require tasks 1..10, trials 1..50, E 2..10')
+    if not 1 <= args.tasks <= 10 or not 1 <= args.trials <= 50:
+        parser.error('Require tasks 1..10 and trials 1..50; E=H=10 is fixed')
     if args.stage_aware and args.fixed_k is not None:
         parser.error('Use separate runs for stage caps and fixed-k comparison')
     stage_config = None
@@ -81,9 +83,14 @@ def main():
         client._ws.close()
         raise ValueError('Start the updated serve_time.py: strict Future context conditioning is required')
     if meta.get('action_target_alignment') != 'after_context' or meta.get('context_horizon') != 9:
+        client._ws.close()
         raise ValueError(f'Wrong model metadata: {meta}')
+    if meta.get('predicted_steps') != PREDICTED_STEPS:
+        client._ws.close()
+        raise ValueError('Server must generate exactly 10 action steps (E=H=10)')
     (out/'run.json').write_text(json.dumps(dict(args=vars(args), metadata=meta,
         stage_config=asdict(stage_config) if stage_config else None,
+        action_protocol=dict(predicted_steps=PREDICTED_STEPS, executed_steps=EXECUTED_STEPS),
         imports=dict(scheduler=inspect.getfile(AdaptiveKScheduler), broker=inspect.getfile(AdaptiveFutureBroker)),
         timing=dict(episode='after reset/10 settling steps to final env.step return, includes bootstrap',
                     request='before preparing trigger observation to validated output ready, includes worker queue',

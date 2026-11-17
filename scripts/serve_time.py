@@ -8,6 +8,7 @@ import os
 from pathlib import Path
 
 import jax
+from openpi_client.time_protocol import CONTEXT_HORIZON, EXECUTED_STEPS, PREDICTED_STEPS
 
 from openpi.policies import policy_config
 from openpi.serving.websocket_policy_server import WebsocketPolicyServer
@@ -48,15 +49,20 @@ def load_future_policy(checkpoint, *, seed=7):
     # Target shift is a training property. The existing context architecture has
     # the same inference inputs/parameter shapes; use the FUTURE weights above.
     cfg = config.get_config('pi05_libero_async_context_from_libero')
+    if cfg.model.action_horizon != PREDICTED_STEPS:
+        raise ValueError('Future timing runtime requires the 10-action prediction architecture')
     cfg = dataclasses.replace(cfg, name='pi05_libero_async_future_time')
     policy = policy_config.create_trained_policy(
         cfg, checkpoint, sample_kwargs={'num_steps': 10}, strict_checkpoint=True,
     )
     if getattr(policy._model, 'action_context_horizon', None) != 9 or not hasattr(policy._model, 'action_context_in_proj'):
         raise ValueError('Future inference requires the trained JAX action-context projection')
+    if policy._model.action_horizon != PREDICTED_STEPS:
+        raise ValueError('Loaded model must predict exactly 10 action steps')
     policy._rng = jax.random.key(seed)
     metadata = dict(config=cfg.name, action_target_alignment='after_context',
-                    predicted_steps=10, context_horizon=9, output_skip_steps=0,
+                    predicted_steps=PREDICTED_STEPS, executed_steps=EXECUTED_STEPS,
+                    context_horizon=CONTEXT_HORIZON, output_skip_steps=0,
                     checkpoint=str(checkpoint), checkpoint_step=manifest['checkpoint_step'],
                     backend='jax', num_denoise_steps=10, timing_scheduler='client',
                     context_conditioning='jax_action_context_v1', strict_checkpoint=True)

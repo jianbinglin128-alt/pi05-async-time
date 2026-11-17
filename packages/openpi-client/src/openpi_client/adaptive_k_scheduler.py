@@ -12,6 +12,8 @@ from collections import deque
 from dataclasses import dataclass
 import math
 
+from openpi_client.time_protocol import EXECUTED_STEPS
+
 
 def _quantile(values, probability):
     """Empirical nearest-rank quantile (no external dependency)."""
@@ -51,13 +53,13 @@ class AdaptiveKScheduler:
     Use one instance across episodes on the same device, outside the rollout loop.
     """
 
-    def __init__(self, *, executed_steps=10, candidates=(2, 3, 4, 5, 6, 7, 8, 9),
+    def __init__(self, *, executed_steps=EXECUTED_STEPS, candidates=(2, 3, 4, 5, 6, 7, 8, 9),
                  context_horizon=9, initial_k=4, latency_window=32,
                  action_window=128, latency_quantile=0.95,
                  action_quantile=0.20, margin_s=0.002, margin_fraction=0.05,
                  min_requests=3, min_actions=8, decrease_chunks=3):
-        if not isinstance(executed_steps, int) or executed_steps < 2:
-            raise ValueError("executed_steps must be an integer >= 2")
+        if type(executed_steps) is not int or executed_steps != EXECUTED_STEPS:
+            raise ValueError("Future timing runtime requires E=H=10 action steps")
         candidates = tuple(sorted(set(candidates)))
         if not candidates or any(not isinstance(k, int) or
                                  not 0 <= k <= min(context_horizon, executed_steps-1)

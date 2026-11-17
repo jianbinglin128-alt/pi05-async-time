@@ -40,6 +40,14 @@ class ContinuationClient:
 
 
 class BrokerTests(unittest.TestCase):
+    def test_generation_and_execution_are_both_fixed_at_ten(self):
+        for executed, predicted in [(5, 10), (10, 5), (10, 20), (9, 9)]:
+            with self.subTest(executed=executed, predicted=predicted):
+                sched = ScriptedScheduler()
+                sched.executed_steps = executed
+                with self.assertRaisesRegex(ValueError, 'E=H=10'):
+                    AdaptiveFutureBroker(ContinuationClient(), sched, predicted_steps=predicted)
+
     def test_real_thread_dynamic_context_alignment_and_terminal_drain(self):
         client = ContinuationClient()
         broker = AdaptiveFutureBroker(client, ScriptedScheduler())

@@ -10,6 +10,8 @@ import math
 
 import numpy as np
 
+from openpi_client.time_protocol import EXECUTED_STEPS
+
 
 @dataclass(frozen=True)
 class StageConfig:
@@ -21,7 +23,7 @@ class StageConfig:
     stable_chunks: int
     history_window_steps: int
     gripper_command_deadband: float
-    executed_steps: int = 10
+    executed_steps: int = EXECUTED_STEPS
     context_horizon: int = 9
     fine_max_k: int | None = None
     coarse_max_k: int | None = None
@@ -36,12 +38,12 @@ class StageConfig:
         return cls(**dict({k: v for k, v in data.items() if k in known}, **overrides))
 
     def __post_init__(self):
-        if type(self.executed_steps) is not int or not 2 <= self.executed_steps <= 10:
-            raise ValueError('executed_steps must be an integer in 2..10')
+        if type(self.executed_steps) is not int or self.executed_steps != EXECUTED_STEPS:
+            raise ValueError('Future timing runtime requires E=H=10 action steps')
         if type(self.context_horizon) is not int or not 0 <= self.context_horizon <= 9:
             raise ValueError('context_horizon must be an integer in 0..9 for the current checkpoint')
         fine = self.executed_steps//2 if self.fine_max_k is None else self.fine_max_k
-        coarse = 2*self.executed_steps if self.coarse_max_k is None else self.coarse_max_k
+        coarse = 2*self.executed_steps//3 if self.coarse_max_k is None else self.coarse_max_k
         if any(type(k) is not int for k in (fine, coarse)) or not 0 <= fine <= coarse:
             raise ValueError('Require integer requested caps 0 <= fine_max_k <= coarse_max_k')
         hard = min(self.executed_steps-1, self.context_horizon)

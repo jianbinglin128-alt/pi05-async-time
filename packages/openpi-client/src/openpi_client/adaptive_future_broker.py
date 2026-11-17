@@ -5,16 +5,18 @@ import time
 
 import numpy as np
 
+from openpi_client.time_protocol import EXECUTED_STEPS, PREDICTED_STEPS
+
 
 class AdaptiveFutureBroker:
     """One request in flight; results never replace their committed context."""
 
-    def __init__(self, client, scheduler, *, fixed_k=None, predicted_steps=10, stage_controller=None):
+    def __init__(self, client, scheduler, *, fixed_k=None, predicted_steps=PREDICTED_STEPS, stage_controller=None):
         self.client = client
         self.scheduler = scheduler
         self.e = scheduler.executed_steps
-        if self.e > predicted_steps:
-            raise ValueError('Executed steps exceed predicted horizon')
+        if type(self.e) is not int or self.e != EXECUTED_STEPS or type(predicted_steps) is not int or predicted_steps != PREDICTED_STEPS:
+            raise ValueError('Future timing runtime requires E=H=10 action steps')
         if fixed_k is not None and fixed_k not in scheduler.candidates:
             raise ValueError('Fixed k must be a scheduler candidate')
         self.fixed_k = fixed_k
@@ -40,7 +42,7 @@ class AdaptiveFutureBroker:
         actions = np.asarray(result['actions'])
         if actions.shape != (self.predicted_steps, 7) or not np.isfinite(actions).all():
             raise ValueError(f'Expected finite ({self.predicted_steps},7) actions, got {actions.shape}')
-        actions = actions[:self.e].copy()
+        actions = actions.copy()
         ready_ns = time.perf_counter_ns()
         record = dict(start_ns=started_ns, worker_start_ns=worker_start, ready_ns=ready_ns,
                       request_s=(ready_ns-started_ns)/1e9, context_steps=context_steps,

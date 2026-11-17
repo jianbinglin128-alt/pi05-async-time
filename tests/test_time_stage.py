@@ -43,12 +43,13 @@ def scheduler(**overrides):
 
 class StageTests(unittest.TestCase):
     def test_ratio_defaults_and_execution_context_limits(self):
-        for e, fine, coarse in [(2, 1, 1), (5, 2, 4), (7, 3, 6), (10, 5, 9)]:
+        cfg = config(fine_max_k=None, coarse_max_k=None)
+        self.assertEqual((cfg.requested_fine_max_k, cfg.requested_coarse_max_k), (5, 6))
+        self.assertEqual((cfg.fine_max_k, cfg.coarse_max_k, cfg.hard_max_k), (5, 6, 9))
+        for e in (2, 5, 7, 9, 11):
             with self.subTest(e=e):
-                cfg = config(executed_steps=e, fine_max_k=None, coarse_max_k=None)
-                self.assertEqual((cfg.requested_fine_max_k, cfg.requested_coarse_max_k), (e//2, 2*e))
-                self.assertEqual((cfg.fine_max_k, cfg.coarse_max_k), (fine, coarse))
-                self.assertEqual(cfg.hard_max_k, min(e-1, 9))
+                with self.assertRaisesRegex(ValueError, 'E=H=10'):
+                    config(executed_steps=e)
         cfg = config(executed_steps=10, context_horizon=3, fine_max_k=None, coarse_max_k=None)
         self.assertEqual((cfg.fine_max_k, cfg.coarse_max_k), (3, 3))
 
@@ -60,7 +61,7 @@ class StageTests(unittest.TestCase):
             t = i*.05
             stage.observe([.1*t, 0., 0.], t, -1.)
         decision = stage.choose_for_chunk(open_actions())
-        self.assertEqual((decision['requested_max_k'], decision['max_k'], decision['hard_max_k']), (20, 9, 9))
+        self.assertEqual((decision['requested_max_k'], decision['max_k'], decision['hard_max_k']), (6, 6, 9))
 
     def test_history_missing_is_fine_and_steady_translation_is_coarse(self):
         self.assertEqual(StageKCap(config()).choose_for_chunk(open_actions())['max_k'], 0)
