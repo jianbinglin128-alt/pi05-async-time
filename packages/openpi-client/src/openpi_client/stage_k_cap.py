@@ -5,7 +5,7 @@ Call observe after executed actions and choose_for_chunk once per installed chun
 The labels are motion heuristics, not semantic task-stage ground truth.
 """
 from collections import deque
-from dataclasses import dataclass, fields
+from dataclasses import dataclass, field, fields
 import math
 
 import numpy as np
@@ -21,16 +21,35 @@ class StageConfig:
     stable_chunks: int
     history_window_steps: int
     gripper_command_deadband: float
-    fine_max_k: int = 0
-    coarse_max_k: int = 4
+    executed_steps: int = 10
+    context_horizon: int = 9
+    fine_max_k: int | None = None
+    coarse_max_k: int | None = None
     gripper_lookahead_steps: int = 5
+    requested_fine_max_k: int = field(init=False)
+    requested_coarse_max_k: int = field(init=False)
+    hard_max_k: int = field(init=False)
 
     @classmethod
     def from_mapping(cls, data, **overrides):
-        known = {f.name for f in fields(cls)}
+        known = {f.name for f in fields(cls) if f.init}
         return cls(**dict({k: v for k, v in data.items() if k in known}, **overrides))
 
     def __post_init__(self):
+        if type(self.executed_steps) is not int or not 2 <= self.executed_steps <= 10:
+            raise ValueError('executed_steps must be an integer in 2..10')
+        if type(self.context_horizon) is not int or not 0 <= self.context_horizon <= 9:
+            raise ValueError('context_horizon must be an integer in 0..9 for the current checkpoint')
+        fine = self.executed_steps//2 if self.fine_max_k is None else self.fine_max_k
+        coarse = 2*self.executed_steps if self.coarse_max_k is None else self.coarse_max_k
+        if any(type(k) is not int for k in (fine, coarse)) or not 0 <= fine <= coarse:
+            raise ValueError('Require integer requested caps 0 <= fine_max_k <= coarse_max_k')
+        hard = min(self.executed_steps-1, self.context_horizon)
+        object.__setattr__(self, 'requested_fine_max_k', fine)
+        object.__setattr__(self, 'requested_coarse_max_k', coarse)
+        object.__setattr__(self, 'hard_max_k', hard)
+        object.__setattr__(self, 'fine_max_k', min(fine, hard))
+        object.__setattr__(self, 'coarse_max_k', min(coarse, hard))
         for name in ('speed_enter_fine_m_s', 'speed_exit_fine_m_s', 'change_enter_fine_m_s2',
                      'change_exit_fine_m_s2', 'gripper_hold_s', 'gripper_command_deadband'):
             value = getattr(self, name)
@@ -41,8 +60,6 @@ class StageConfig:
                 raise ValueError(f'{name} must be a positive integer')
         if self.speed_exit_fine_m_s < self.speed_enter_fine_m_s or self.change_exit_fine_m_s2 > self.change_enter_fine_m_s2:
             raise ValueError('Invalid stage hysteresis thresholds')
-        if any(type(k) is not int for k in (self.fine_max_k, self.coarse_max_k)) or not 0 <= self.fine_max_k <= self.coarse_max_k <= 9:
-            raise ValueError('Require 0 <= fine_max_k <= coarse_max_k <= 9')
 
 
 class StageKCap:
@@ -117,6 +134,8 @@ class StageKCap:
                 self.fine = False
         phase = 'fine' if self.fine else 'coarse'
         return dict(phase=phase, max_k=cfg.fine_max_k if self.fine else cfg.coarse_max_k,
+                    requested_max_k=cfg.requested_fine_max_k if self.fine else cfg.requested_coarse_max_k,
+                    hard_max_k=cfg.hard_max_k,
                     reasons=reasons, stable_chunks=self.stable,
                     features=dict(speed_m_s=speed, change_m_s2=change, history_valid=valid,
                                   upcoming_gripper_event=upcoming, gripper_protection=protection,

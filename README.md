@@ -17,7 +17,7 @@ ActSync Future 动作上下文模型的轻量自适应推理触发调度器。�
 
 若没有候选值满足预算，使用最大 k 并记录不可行。经验分位数规则不构成实时保证或任务质量保证。该机制参考 [ActECC IV-B](https://arxiv.org/html/2603.07949v3#S4.SS2) 的最晚可行请求原则，适配固定动作上下文交接。
 
-可通过 `--stage-aware` 启用来自 `openpi_async_stage` 的 coarse/fine 状态上限：默认精细阶段 k_max=0，粗操作 k_max=4。状态由已执行的末端运动历史和本块预测夹爪事件判断，计时调度器在上限内选 k；上限内预算不足时接受等待。默认仍使用原计时模式。配置来源、迁移差异与命令见 [阶段上限说明](docs/stage_k_caps.md)。
+可通过 `--stage-aware` 启用来自 `openpi_async_stage` 的 coarse/fine 状态上限：精细阶段请求上限 `floor(E/2)`，粗操作请求上限 `2E`，实际均受 `min(E-1, 9)` 的执行与权重限制。默认 E=10 时实际上限为 5/9。状态由已执行的末端运动历史和本块预测夹爪事件判断，计时调度器在上限内选 k；上限内预算不足时接受等待。默认仍使用原计时模式。配置来源、迁移差异与命令见 [阶段上限说明](docs/stage_k_caps.md)。
 
 ## 环境
 
@@ -83,7 +83,7 @@ bash scripts/run_time.sh eval 0 --port 19930 \
 # 根据 coarse/fine 阶段限制 k；E 仍为 10。
 bash scripts/run_time.sh eval 0 --port 19930 \
   --suites libero_spatial --tasks 10 --trials 3 --stage-aware \
-  --output "$PWD/results/spatial_stage_cap04"
+  --output "$PWD/results/spatial_stage_cap59"
 ```
 
 使用 `--suites libero_spatial` 选择套件，`--candidates 2 3 4` 限制候选范围。`--tasks 10 --trials 50` 对每个选定套件评估 500 回合。输出目录必须是新目录，GPU 与端口需避开其他作业。服务端默认只监听本机。
@@ -92,7 +92,7 @@ bash scripts/run_time.sh eval 0 --port 19930 \
 
 ## 验证范围
 
-33 项 CPU 测试覆盖时间预算、滞回、不可行处理、真实后台线程、动作顺序、阶段上限和零上下文交接，以及实际 JAX 动作专家的上下文依赖、mask、注意力方向和严格权重加载。CPU 网络测试缩小视觉编码器，使用真实的小型 Transformer；完整已训练权重另外通过 `check-context` 检查。阶段功能尚未完成新的 DGX 闭环成功率评测。
+35 项 CPU 测试覆盖时间预算、滞回、不可行处理、真实后台线程、动作顺序、阶段上限和零上下文交接，以及实际 JAX 动作专家的上下文依赖、mask、注意力方向和严格权重加载。CPU 网络测试缩小视觉编码器，使用真实的小型 Transformer；完整已训练权重另外通过 `check-context` 检查。阶段功能尚未完成新的 DGX 闭环成功率评测。
 
 初始版的 28 回合检查以及 DGX Spatial 对照都发生在上下文链路修复前，不能作为本版 Future 模型成功率证据。修复版验证范围见 [修复说明](docs/context_fix.md)。尚未在全新机器上重建整个环境；小规模检查不能作为完整 LIBERO 成功率或独占设备提速结论。
 

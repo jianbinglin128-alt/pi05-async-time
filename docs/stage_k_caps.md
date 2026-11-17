@@ -2,7 +2,17 @@
 
 启用 `--stage-aware` 后，运动阶段决定允许的最大 k，原有计时调度器在允许范围内选择最小可行 k。没有候选满足时间预算时，使用阶段允许的最大候选并记录不可行；不为减少等待突破阶段上限。
 
-默认精细阶段上限为 0，粗操作上限为 4，候选集合自动为 0..4。`k=0` 表示先执行完本块，再获取新观测，以空动作上下文同步请求下一块。因此它会产生交接等待，不改变本块执行长度 E，也不意味着每个动作后都重新观察。
+默认请求上限按执行长度计算：精细阶段 `floor(E/2)`，粗操作 `2E`。实际生效上限还受单块剩余动作数与权重上下文长度约束：
+
+```text
+hard_max_k = min(E-1, 9)
+fine_max_k = min(floor(E/2), hard_max_k)
+coarse_max_k = min(2E, hard_max_k)
+```
+
+例如 E=10 时，请求上限为 5/20，实际上限为 5/9，候选集合自动为 0..9；E=5 时实际上限为 2/4。粗操作 2E 是请求上限，当前单 chunk 协议不能实际提交 2E 个剩余动作。真正支持 k=20 需要新的执行协议及支持更长上下文的权重。
+
+可显式配置上限 0。`k=0` 表示先执行完本块，再获取新观测，以空动作上下文同步请求下一块。它会产生交接等待，不改变本块执行长度 E，也不意味着每个动作后都重新观察。
 
 ## 状态来源
 
@@ -31,11 +41,11 @@
 更新并重启修复版 Future 服务端，然后：
 
 ```bash
-# 同一 Spatial 10 个任务，每任务 3 个初态；E=10，fine cap=0、coarse cap=4。
+# 同一 Spatial 10 个任务，每任务 3 个初态；E=10，实际 fine cap=5、coarse cap=9。
 bash scripts/run_time.sh eval 0 --port 19930 \
   --suites libero_spatial --tasks 10 --trials 3 \
   --stage-aware \
-  --output "$PWD/results/spatial_stage_cap04"
+  --output "$PWD/results/spatial_stage_cap59"
 
 # 另一个方案：精细阶段允许最多提前 2 步，粗操作仍最多 4 步。
 bash scripts/run_time.sh eval 0 --port 19930 \
@@ -50,9 +60,9 @@ bash scripts/run_time.sh eval 0 --port 19930 \
 
 ## 日志与验证边界
 
-- `run.json`：完整解析后的 StageConfig 和 CLI 参数。
+- `run.json`：完整解析后的 StageConfig 和 CLI 参数，包括请求上限、硬上限和实际生效上限；启动时也打印 `STAGE_K_CAPS`。
 - `actions.jsonl`：控制时间、末端位置、实际夹爪命令、env.step 墙钟耗时。
-- `decisions.jsonl`：stage、特征、触发原因、阶段上限、计时需求、实际 k、预算不可行及上限限制标志。
+- `decisions.jsonl`：stage、特征、触发原因、请求/生效上限、计时需求、实际 k、预算不可行及上限限制标志。
 - `handovers.jsonl`：该交接所属阶段、k 与上限、实际覆盖和等待。
 - `summary.json`：阶段占比计数、每阶段 k 分布、受上限限制次数和每阶段等待总量。
 

@@ -12,7 +12,9 @@ from openpi_client.stage_k_cap import StageConfig, StageKCap
 
 def config(**overrides):
     path = Path(__file__).resolve().parents[1]/'configs/stage_target20.json'
-    return StageConfig.from_mapping(json.loads(path.read_text()), **overrides)
+    options = dict(fine_max_k=0, coarse_max_k=4)
+    options.update(overrides)
+    return StageConfig.from_mapping(json.loads(path.read_text()), **options)
 
 
 def moving_stage(**overrides):
@@ -40,6 +42,26 @@ def scheduler(**overrides):
 
 
 class StageTests(unittest.TestCase):
+    def test_ratio_defaults_and_execution_context_limits(self):
+        for e, fine, coarse in [(2, 1, 1), (5, 2, 4), (7, 3, 6), (10, 5, 9)]:
+            with self.subTest(e=e):
+                cfg = config(executed_steps=e, fine_max_k=None, coarse_max_k=None)
+                self.assertEqual((cfg.requested_fine_max_k, cfg.requested_coarse_max_k), (e//2, 2*e))
+                self.assertEqual((cfg.fine_max_k, cfg.coarse_max_k), (fine, coarse))
+                self.assertEqual(cfg.hard_max_k, min(e-1, 9))
+        cfg = config(executed_steps=10, context_horizon=3, fine_max_k=None, coarse_max_k=None)
+        self.assertEqual((cfg.fine_max_k, cfg.coarse_max_k), (3, 3))
+
+    def test_requested_and_effective_caps_are_logged(self):
+        stage = StageKCap(config(fine_max_k=None, coarse_max_k=None))
+        decision = stage.choose_for_chunk(open_actions())
+        self.assertEqual((decision['requested_max_k'], decision['max_k'], decision['hard_max_k']), (5, 5, 9))
+        for i in range(11):
+            t = i*.05
+            stage.observe([.1*t, 0., 0.], t, -1.)
+        decision = stage.choose_for_chunk(open_actions())
+        self.assertEqual((decision['requested_max_k'], decision['max_k'], decision['hard_max_k']), (20, 9, 9))
+
     def test_history_missing_is_fine_and_steady_translation_is_coarse(self):
         self.assertEqual(StageKCap(config()).choose_for_chunk(open_actions())['max_k'], 0)
         decision = moving_stage().choose_for_chunk(open_actions())

@@ -49,8 +49,8 @@ def main():
     parser.add_argument('--fixed-k', type=int)
     parser.add_argument('--stage-aware', action='store_true', help='Use coarse/fine state to cap k per chunk')
     parser.add_argument('--stage-config', default=str(Path(__file__).resolve().parents[2]/'configs/stage_target20.json'))
-    parser.add_argument('--stage-fine-max-k', type=int, default=0)
-    parser.add_argument('--stage-coarse-max-k', type=int, default=4)
+    parser.add_argument('--stage-fine-max-k', type=int, help='Requested fine cap; default floor(E/2), clipped by E-1 and context horizon')
+    parser.add_argument('--stage-coarse-max-k', type=int, help='Requested coarse cap; default 2E, clipped by E-1 and context horizon')
     parser.add_argument('--seed', type=int, default=7)
     parser.add_argument('--output', required=True)
     args = parser.parse_args()
@@ -61,10 +61,10 @@ def main():
     stage_config = None
     if args.stage_aware:
         stage_config = StageConfig.from_mapping(json.loads(Path(args.stage_config).read_text()),
+            executed_steps=args.execute_steps,
             fine_max_k=args.stage_fine_max_k, coarse_max_k=args.stage_coarse_max_k,
             gripper_lookahead_steps=args.execute_steps)
-        if stage_config.coarse_max_k >= args.execute_steps:
-            parser.error('Stage caps must be smaller than execute-steps')
+        print('STAGE_K_CAPS', json.dumps(asdict(stage_config)), flush=True)
     if args.candidates is None:
         args.candidates = list(range(stage_config.coarse_max_k+1)) if stage_config else list(range(2, 10))
     if args.initial_k is None:
