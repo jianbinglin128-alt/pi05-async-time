@@ -1,0 +1,14 @@
+# Supplement to pyproject.toml; versions from the validated Python 3.11 runtime.
+numpy==1.26.4
+mujoco==2.3.7
+robosuite==1.4.1
+bddl==1.0.1
+gym==0.25.2
+easydict==1.13
+imageio==2.37.0
+opencv-python==4.11.0.86
+pynput==1.8.1
+numba==0.61.2
+h5py==3.13.0
+websockets==15.0.1
+huggingface-hub==0.32.3

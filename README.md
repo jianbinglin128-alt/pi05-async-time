@@ -1,0 +1,87 @@
+# pi05-async-time
+
+ActSync Future 动作上下文模型的轻量自适应推理触发调度器。固定预测长度与执行长度，通过近期请求耗时和动作执行耗时自动选择 k，替代手动切换触发位置。
+
+本仓库包含代码、配置、测试及说明。模型权重、虚拟环境、缓存、数据集、实验视频和逐回合日志均不包含在仓库中。上游 OpenPI 说明保存在 [README.upstream.md](README.upstream.md)。
+
+## 调度规则
+
+- 默认 H=10、E=10，候选 k=2..9，初始 k=4。
+- 请求时间估计为近期 P95，动作执行时间估计为近期 P20。
+- 在候选范围内选择满足 `k * action_time >= request_time + max(2ms, 5% * request_time)` 的最小 k。
+- 每个 chunk 开始时冻结决策；需要时立即增大 k，连续三块允许更小 k 后再降低一档。
+- 只有一个在途请求。提交给模型的上下文必须全部执行完，结果早到时缓冲，晚到时等待。
+- 预测从上下文之后开始，新输出保留前 E 个动作，不跳过前 k 个动作。
+
+若没有候选值满足预算，使用最大 k 并记录不可行。经验分位数规则不构成实时保证或任务质量保证。该机制参考 [ActECC IV-B](https://arxiv.org/html/2603.07949v3#S4.SS2) 的最晚可行请求原则，适配固定动作上下文交接。
+
+## 环境
+
+Linux、NVIDIA GPU、可用的 CUDA 驱动和 Python 3.11。
+
+```bash
+git clone --recurse-submodules https://github.com/jianbinglin128-alt/pi05-async-time.git
+cd pi05-async-time
+GIT_LFS_SKIP_SMUDGE=1 uv sync --python 3.11
+uv pip install --python .venv/bin/python -r requirements-time-eval.txt
+```
+
+按 [LIBERO 官方说明](https://github.com/Lifelong-Robot-Learning/LIBERO) 准备资产、任务定义和初始状态，并配置 `LIBERO_CONFIG_PATH`。调度器默认从 `third_party/libero` 导入 LIBERO；也可通过 `LIBERO_SOURCE=/path/to/LIBERO` 选择已有安装。
+
+`requirements-time-eval.txt` 记录本次验证使用的仿真依赖版本；不要使用旧的 `examples/libero/requirements.txt` 覆盖 Python 3.11 环境，该文件保留的是上游旧环境配置。已验证的主要版本为 JAX 0.5.3、Flax 0.10.2、PyTorch 2.7.1、NumPy 1.26.4、MuJoCo 2.3.7、robosuite 1.4.1。
+
+启动脚本优先使用 `TIME_PYTHON`，其次使用本仓库 `.venv/bin/python`，最后使用 `python3`。已有兼容环境可直接设置 `TIME_PYTHON=/path/to/python`，无需重新安装。
+
+## 模型权重
+
+使用 [Dream-LIN/pi05_libero_async_future](https://huggingface.co/Dream-LIN/pi05_libero_async_future)，Orbax/JAX checkpoint step 29999，对应 30,000 次优化更新。服务端校验权重 manifest 的 SHA256。这里提供的是推理运行时，不包含 Future 模型训练复现配置。
+
+```bash
+uv run python - <<'PY'
+from huggingface_hub import snapshot_download
+snapshot_download(
+    repo_id="Dream-LIN/pi05_libero_async_future",
+    local_dir="checkpoints/pi05_libero_async_future",
+)
+PY
+```
+
+首次运行可能需要下载上游 tokenizer，`OPENPI_DATA_HOME` 可指定共享缓存。预热期间 JAX 编译可能耗时较长，客户端已关闭 WebSocket 心跳超时。
+
+## 运行
+
+```bash
+# CPU 测试，不需要模型权重或 LIBERO 数据。
+bash scripts/run_time.sh test 0
+
+# 终端 1：服务端，10 次 flow 步，完整未剪枝权重。
+bash scripts/run_time.sh server 0 --port 19930 \
+  --checkpoint "$PWD/checkpoints/pi05_libero_async_future"
+
+# 终端 2：四套件各 1 个任务、每任务 3 个初态，自动 k。
+bash scripts/run_time.sh eval 0 --port 19930 \
+  --tasks 1 --trials 3 --output "$PWD/results/adaptive_smoke"
+
+# 相同条件的固定 k 对照；输出目录必须不同。
+bash scripts/run_time.sh eval 0 --port 19930 \
+  --tasks 1 --trials 3 --fixed-k 4 --output "$PWD/results/fixed4_smoke"
+```
+
+使用 `--suites libero_spatial` 选择套件，`--candidates 2 3 4` 限制候选范围。`--tasks 10 --trials 50` 对每个选定套件评估 500 回合。输出目录必须是新目录，GPU 与端口需避开其他作业。服务端默认只监听本机。
+
+日志包括运行配置、逐请求耗时、逐动作耗时、每块决策和实际交接等待。覆盖由实际动作就绪时间和上下文执行结束时间计算，不由预算预测标志代替。动作计时排除推理等待；任务计时包含 bootstrap，排除预热、reset、稳定动作、终止后排空及磁盘写入。
+
+## 验证范围
+
+14 项 CPU 测试覆盖时间预算、滞回、不可行处理、真实后台线程、动作顺序及最大上下文 k=9。原运行版本还在已有环境中完成了 28 回合 LIBERO 功能检查：窄范围自动组和固定 k=4 组各 8/12 成功，逐回合成功状态与步数一致；宽范围组 2/4 成功，实际使用 k=4..9，同四个初态的固定组也是 2/4。没有程序异常。
+
+该小规模检查使用共享 GPU，只验证链路可运行，不能作为完整 LIBERO 成功率或独占设备提速结论。发布包另外验证了 CPU 测试与入口可导入；尚未在全新机器上重建整个环境并复跑 GPU 评估。
+
+## 关键代码
+
+- [adaptive_k_scheduler.py](packages/openpi-client/src/openpi_client/adaptive_k_scheduler.py)：计时估计和 k 决策。
+- [adaptive_future_broker.py](packages/openpi-client/src/openpi_client/adaptive_future_broker.py)：异步请求、上下文承诺与交接。
+- [serve_time.py](scripts/serve_time.py)：Future 权重加载和服务端。
+- [eval_time.py](examples/libero/eval_time.py)：自适应与固定 k 的 LIBERO 评估。
+
+源码基于 [Physical Intelligence OpenPI](https://github.com/Physical-Intelligence/openpi)。保留原有 [Apache 2.0](LICENSE) 和 [Gemma](LICENSE_GEMMA.txt) 许可；模型、数据及第三方依赖按其各自条款使用。
